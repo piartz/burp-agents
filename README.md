@@ -1,79 +1,106 @@
 # burp-ai-pentest-workflow
 
-A Claude Code project that wires up **Burp Suite Professional** (via its MCP Server
-extension) with a small set of **specialized subagents**, so a pentester can delegate
-mechanical, well-scoped traffic-analysis work to cheap/fast models while keeping
-judgment calls at the Sonnet/Opus level.
+Shared Burp Suite Professional workflows for **Claude Code** and **OpenAI Codex
+(GPT)**, with eight focused agents, enforced MCP capability profiles, and offline
+helpers for response comparison, session checks and redacted evidence exports.
 
-This is a workflow scaffold, not an automated scanner: every subagent here is built to
-do one narrow, mechanical job and report raw findings — it's still on you (and your
-main Claude session) to interpret results and decide what's actually exploitable.
+The human/main agent chooses the test and interprets evidence. Specialists perform
+bounded tasks; this repository does not automate unrestricted scanning.
 
-## What's in this repo
+## Agents
 
+| Agent | Job | Profile | Claude default |
+| --- | --- | --- | --- |
+| `burp-triager` | Rank captured traffic for review | analysis | Haiku |
+| `burp-surface-mapper` | Inventory observed endpoints, parameters and coverage gaps | analysis | Haiku |
+| `burp-scanner-reviewer` | Group Scanner findings and prioritize verification | analysis | Sonnet |
+| `burp-evidence-writer` | Draft reproducible findings from selected evidence | analysis | Sonnet |
+| `burp-websocket-analyst` | Review captured handshakes/messages; no frame sending | analysis | Sonnet |
+| `burp-repeater-operator` | Execute specified HTTP/1.1 or HTTP/2 variants | active | Haiku |
+| `burp-authz-comparer` | Evaluate an explicit test-account access matrix | active* | Sonnet |
+| `burp-oob-specialist` | One specified injection point and correlated OOB evidence | active | Sonnet |
+
+*The authorization comparer can also analyze supplied captures without sends in the
+analysis profile. Codex agents inherit the parent's model and reasoning effort.
+See [OpenAI's custom-agent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+
+## Quick start
+
+You need Python 3.11+, Burp with the MCP Server extension, a compatible Java runtime
+for its extracted stdio proxy, and Claude Code or a local Codex client supporting
+custom agents. Scanner findings and Collaborator require Burp Professional.
+
+1. Enable Burp's MCP extension and extract `mcp-proxy-all.jar`.
+2. Copy `config/engagement.example.toml` to `engagement.toml`. Set exact target
+   services, allowed methods, budgets and Java/JAR paths. Keep credentials in your
+   own secret store; account entries contain labels and references only.
+3. **Claude Code:** the committed `.mcp.json` uses the gateway's analysis profile.
+   **Codex:** copy `config/mcp/codex-analysis.toml` to `.codex/config.toml`, merging
+   into any existing configuration. Trust the project when prompted.
+4. Start a fresh session from this directory, list MCP tools, and read a small batch
+   of captured history. No sending tools should appear in the analysis profile.
+5. For active verification, switch to the matching `claude-active.json` or
+   `codex-active.toml` template under `config/mcp/`, then restart the session.
+
+Full installation, global-agent setup and transport troubleshooting:
+[setup guide](docs/setup.md). All local configuration and artifacts are Git-ignored.
+
+## Use it
+
+> Use engagement.toml's scope and limits. Delegate to burp-surface-mapper to inventory
+> 100 captured requests, then burp-scanner-reviewer to group up to 50 Scanner issues.
+> Return source references and bounded verification suggestions. Do not send traffic.
+
+See [workflows](docs/workflows.md) for all eight roles and the single-session fallback.
+Pass engagement context and evidence explicitly when switching clients.
+
+## Shared capabilities
+
+- **HTTP/1.1 and HTTP/2:** preserve protocol, authority, headers and bodies.
+- **Gateway controls:** capability allowlists, exact host/port/TLS scope, method/path
+  restrictions, shared persistent request/poll budgets and pacing across processes.
+- **Response comparison:** meaningful headers and normalized JSON, raw results
+  retained, equal-length content changes detected and truncated bodies marked unknown.
+- **Session checks:** explicit identity assertions distinguish valid, invalid,
+  mismatched and unknown test sessions; no automatic login or credential refresh.
+- **Evidence:** structured records, source provenance, redacted JSON/Markdown exports
+  and private output permissions. Review redaction before sharing.
+
+Gateway controls apply only to calls through the configured gateway. They do not
+filter Burp history by host or govern direct Burp/UI activity. See
+[engagement configuration](docs/engagement.md), [evidence helpers](docs/evidence.md)
+and [guardrails](docs/guardrails.md) for exact boundaries.
+
+## Repository layout
+
+```text
+agents/*.md                  # Edit these shared role definitions
+agents/_shared/contract.md    # Shared engagement/protocol/evidence instructions
+.claude/agents/               # Generated native Claude agents
+.codex/agents/                # Generated native Codex agents
+config/engagement.example.toml
+config/evidence.example.json
+config/mcp/                  # Generated analysis/active templates for both clients
+scripts/burp-gateway.py       # stdio MCP gateway; launches Burp's packaged proxy
+scripts/compare-responses.py  # Offline comparison and identity checks
+scripts/export-evidence.py    # Offline redacted JSON/Markdown exports
+scripts/sync-agents.py        # Generate/check native agents and profile templates
+tests/test_workflow.py        # Offline tests, including a mock MCP transport
 ```
-burp-ai-pentest-workflow/
-├── .mcp.json                        # Burp MCP server config for Claude Code
-├── .claude/
-│   └── agents/
-│       ├── burp-triager.md              # Haiku — triages proxy history into a shortlist
-│       ├── burp-repeater-operator.md    # Haiku — sends systematic Repeater variations
-│       └── burp-oob-specialist.md       # Sonnet — Collaborator-based OOB verification
-├── docs/
-│   ├── setup.md                     # Step-by-step install/config/verify guide
-│   ├── workflows.md                 # Example prompts for each subagent
-│   ├── guardrails.md                # Safety-classifier behavior + MCP tool-scoping caveat
-│   └── mcp-config.md                # Burp-side MCP Server extension + auto-approve setup
-└── README.md                        # This file
+
+## Maintaining and checking
+
+Edit shared roles, the shared contract, or the capability catalog in
+`scripts/burp_common.py`, then regenerate and validate:
+
+```bash
+python3 scripts/sync-agents.py
+python3 scripts/sync-agents.py --check
+python3 -m unittest discover -s tests -v
 ```
 
-## Prerequisites
-
-- **Burp Suite Professional** (Collaborator and the MCP Server extension require Pro).
-- **Claude Code** installed and working.
-- An **authorized, scoped target** — see "Limits and responsibility" below.
-
-## Quick install
-
-1. Clone/copy this repo (or just use it directly as a Claude Code project directory).
-2. Make the subagents available:
-   - **Project-scoped (recommended)**: leave them in `.claude/agents/` inside this repo
-     — they're automatically available when you run Claude Code from this directory.
-   - **Global**: copy the files in `.claude/agents/` into `~/.claude/agents/` if you
-     want them available from any project.
-3. Configure the MCP connection — see `docs/mcp-config.md` and `docs/setup.md` for the
-   full walkthrough (install the Burp MCP Server extension, confirm the port, adjust
-   `.mcp.json` if needed).
-4. Restart Claude Code (or start a fresh session in this directory) so it picks up both
-   the MCP server and the subagent definitions.
-5. Verify the connection by asking Claude to list the last few proxy history entries
-   (see `docs/setup.md` step 4).
-
-## Try it
-
-With Burp running, some traffic captured in the proxy history, and the MCP connection
-verified, try:
-
-> "Pull the last 100 requests from the Burp proxy history and use burp-triager to give
-> me the 5 most suspicious endpoints to look at next."
-
-See `docs/workflows.md` for more examples, including Repeater-based probing and
-Collaborator-based OOB verification.
-
-## Limits and responsibility
-
-- **Haiku-backed subagents (`burp-triager`, `burp-repeater-operator`) are cheap and
-  fast, but more error-prone than the main model.** Use them for mechanical,
-  well-defined tasks — scanning a list, diffing responses against a baseline — and
-  always have a human (or the main Sonnet/Opus session) review their findings before
-  acting on them. They are not a substitute for your own analysis.
-- **The main agent (Sonnet/Opus) should make the actual security judgment calls** —
-  what's actually exploitable, what severity to assign, what to report. Subagents here
-  are execution/classification helpers, not decision-makers.
-- **Only use this against targets you are explicitly authorized to test**, within a
-  defined engagement scope (pentest authorization, bug bounty program terms, your own
-  lab environment, etc.). Nothing in this repo should be pointed at systems you don't
-  have permission to test.
-- Read `docs/guardrails.md` before relying on this in a real engagement — it covers
-  both Anthropic's safety behavior on dual-use requests and a known technical caveat
-  about subagent `tools:` scoping with MCP servers.
+Agent frontmatter accepts one unquoted scalar per line: `name`, `description`,
+`claude_model`, and comma-separated server-side `tools`. Both adapters embed the same
+shared contract and role instructions. Generated files ship with the repository.
+Tests run locally with the standard library and a mock server; they do not contact
+Burp or a test target. See [capability coverage](docs/mcp-config.md) for limitations.

@@ -1,1 +1,8 @@
 .DS_Store
+.claude/settings.local.json
+.codex/config.toml
+__pycache__/
+*.pyc
+engagement.toml
+.burp/
+artifacts/

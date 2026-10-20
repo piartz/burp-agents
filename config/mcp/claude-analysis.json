@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "burp": {
+      "command": "python3",
+      "args": [
+        "scripts/burp-gateway.py",
+        "--engagement",
+        "engagement.toml",
+        "--profile",
+        "analysis"
+      ]
+    }
+  }
+}

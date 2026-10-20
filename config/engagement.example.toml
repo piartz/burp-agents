@@ -1,0 +1,60 @@
+# Copy to engagement.toml. Keep real account credentials outside this file/repository.
+engagement_id = "lab-2026-001"
+state_path = ".burp/state.sqlite3"
+allowed_methods = ["GET", "HEAD", "OPTIONS"]
+# Checked against decoded and normalized paths; these are path globs, not full URLs.
+excluded_paths = ["/logout*", "/admin/delete*", "/payments*"]
+
+[[targets]]
+host = "app.example.test"
+port = 443
+https = true
+
+[limits]
+max_requests = 30
+max_polls = 9
+max_history_count = 100
+min_interval_seconds = 1.0
+
+[upstream]
+command = "/absolute/path/to/java"
+args = ["-jar", "/absolute/path/to/mcp-proxy-all.jar", "--sse-url", "http://127.0.0.1:9876"]
+
+[comparison]
+length_tolerance_percent = 2.0
+ignored_headers = ["date", "x-request-id", "traceparent"]
+# Explicit JSON pointers; never ignore identity/authorization fields by default.
+ignored_json_pointers = ["/timestamp", "/requestId"]
+
+[[accounts]]
+label = "user-a"
+role = "customer"
+credential_ref = "local-secret-store:user-a"
+# Session checks are caller-supplied captured responses or explicitly budgeted sends.
+identity_pointer = "/user/id"
+expected_identity = "test-user-a"
+login_path_prefixes = ["/login", "/signin"]
+
+[[accounts]]
+label = "user-b"
+role = "customer"
+credential_ref = "local-secret-store:user-b"
+identity_pointer = "/user/id"
+expected_identity = "test-user-b"
+login_path_prefixes = ["/login", "/signin"]
+
+[[access_matrix]]
+case_id = "user-a-own-order"
+account = "user-a"
+method = "GET"
+path = "/api/orders/123"
+expected = "allow"
+resource_owner = "user-a"
+
+[[access_matrix]]
+case_id = "user-b-other-order"
+account = "user-b"
+method = "GET"
+path = "/api/orders/123"
+expected = "deny"
+resource_owner = "user-a"

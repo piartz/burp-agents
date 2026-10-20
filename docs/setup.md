@@ -1,79 +1,116 @@
 # Setup guide
 
-Step-by-step setup for using this repo's subagents with Burp Suite Professional and
-Claude Code.
+Both clients use the same eight agents, engagement file, gateway and evidence format.
+Native agent files and MCP profile templates are generated and shipped in the repo.
 
-## Prerequisites
+## 1. Prepare Burp and the local environment
 
-- Burp Suite Professional (the MCP Server extension and Collaborator functionality used
-  by `burp-oob-specialist` require the Professional edition).
-- Claude Code installed and working.
-- An authorized, scoped target to test against (see `docs/guardrails.md` and the
-  README's "Limits and responsibility" section).
+Install Burp's **MCP Server** extension, enable it in the **MCP** tab, and extract
+`mcp-proxy-all.jar` using the extension's installer/extract option. Confirm the SSE
+URL; upstream documents `http://127.0.0.1:9876`, while some older builds use `/sse`.
+Use Python 3.11+ and a Java runtime compatible with the packaged proxy (Burp's bundled
+Java can be used). See [PortSwigger's setup instructions](https://github.com/PortSwigger/mcp-server/blob/main/README.md).
 
-## 1. Install and start the Burp MCP Server extension
+Professional is required for Scanner issues and Collaborator. The other available
+capabilities can be used with Community; absent tools must be reported as unavailable.
 
-Follow `docs/mcp-config.md` section 1–2: install **MCP Server** from the BApp Store,
-open the **MCP** tab, confirm the listening port (default **9876**), and start the
-server.
+## 2. Configure the engagement
 
-## 2. Add the server to Claude Code
+Copy `config/engagement.example.toml` to `engagement.toml`. Set the target host,
+port/TLS, Java/JAR paths and limits. Review excluded paths and allowed methods; POST
+or other methods must be explicitly allowed for tasks that require them. Replace
+example account labels and access cases with your test assets. Credential references
+are placeholders resolved by you, not stored secrets or an automatic login mechanism.
 
-You have two equivalent options:
+Read [engagement.md](engagement.md) for enforced controls and their boundaries.
+`engagement.toml`, `.burp/`, `artifacts/` and `.codex/config.toml` are Git-ignored.
 
-**Option A — use this repo's `.mcp.json`** (recommended, keeps config in version
-control and scoped to this project): just open Claude Code from this project directory;
-it will pick up `.mcp.json` automatically. Confirm the URL/port inside it matches your
-Burp MCP tab.
+## 3A. Claude Code
 
-**Option B — register manually:**
+Run Claude Code from this repository. The committed `.mcp.json` launches the gateway
+in `analysis` mode. Approve the project server when prompted. The native definitions
+in `.claude/agents/` use server name `burp` in their tool lists.
+
+For active testing, replace `.mcp.json` with `config/mcp/claude-active.json` and start
+a fresh session. Switch back using `config/mcp/claude-analysis.json`. The sync script
+restores the analysis default; personal connection choices belong in local client
+configuration if you want to retain them across regeneration.
+
+For global agents, copy `.claude/agents/*.md` to `~/.claude/agents/`. Register the
+selected MCP template separately using absolute script/engagement paths. Remove any
+old direct SSE connection before relying on gateway restrictions.
+
+## 3B. Codex with GPT
+
+Use a current local client with standalone TOML custom-agent support. Copy
+`config/mcp/codex-analysis.toml` to `.codex/config.toml`, merging the
+`[mcp_servers.burp]` block into any existing configuration rather than overwriting it.
+Trust the project when prompted; the `.codex/agents/*.toml` files define the same
+named specialists. The agent model and reasoning effort inherit from the parent.
+
+For active testing, use the block in `config/mcp/codex-active.toml` and start a fresh
+session. Its `enabled_tools` list and gateway profile both permit the active tools.
+For global agents, copy `.codex/agents/*.toml` to `~/.codex/agents/` and configure the
+connection separately with absolute paths. Do not register a parallel direct server.
+
+These formats and transport choices follow [OpenAI's custom-agent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents)
+and [MCP documentation](https://developers.openai.com/codex/mcp/). Codex uses the stdio
+gateway, which launches Burp's packaged SSE bridge. It does not consume Claude's
+`.mcp.json` as project MCP configuration. Hosted GPT/API clients are not configured by
+these local files; see the single-session fallback in [workflows.md](workflows.md).
+
+## 4. Verify in analysis mode
+
+Start a fresh client session in the repository. In Codex, `codex mcp list` shows
+configured servers and `/mcp` shows active tools. Ask the main agent:
+
+> List the Burp tools available, then read five captured HTTP history entries using
+> count=5 and offset=0. Do not send traffic.
+
+Only analysis tools should appear; send/tab/Collaborator tools should be absent.
+Confirm the client actually loads native specialists by delegating one bounded
+history task. If custom agents are unavailable, use the explicit fallback.
+
+If startup fails, check Python version, local engagement file, Java/JAR paths, Burp's
+server state, URL and matching extension/proxy versions. The gateway prints startup
+errors to stderr. If a tool is absent or renamed, compare your installed schemas with
+[the upstream implementation](https://github.com/PortSwigger/mcp-server/blob/main/src/main/kotlin/net/portswigger/mcp/tools/Tools.kt),
+then update the shared agent sources and capability catalog and regenerate.
+
+## 5. Use active mode deliberately
+
+Switch profiles only for the requested verification task. Supply exact requests,
+protocol, account context, variants/access matrix and a budget including any session
+controls. HTTP/2 requires the supplied pseudo-header/body schema; never downgrade
+silently. Scope/method/path checks apply to tabs and sends. A tab alone is not a send.
+
+Burp-side approval remains separate. Review it for the engagement's exact targets.
+Start with small batches, inspect raw results, and use [workflows.md](workflows.md)
+and [evidence.md](evidence.md) for the full workflow.
+
+## Alternative bridge when Java cannot start
+
+If the bundled Java executable exits immediately (for example, macOS kills it) and
+no suitable system Java is installed, the gateway can launch a Python stdio-to-SSE
+bridge instead. [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) supports this
+transport. One locally verified combination is mcp-proxy 0.12.0 with MCP SDK 1.30.0
+in an isolated Python 3.13 environment:
 
 ```bash
-claude mcp add burp --transport sse http://127.0.0.1:9876/sse
+uv venv .burp/proxy-venv --python python3.13
+uv pip install --python .burp/proxy-venv/bin/python 'mcp-proxy==0.12.0' 'mcp==1.30.0'
 ```
 
-Adjust `--transport` and the URL if your build of the extension uses stdio instead of
-SSE (see `docs/mcp-config.md`).
+In `engagement.toml`, replace only the upstream block, using your absolute path:
 
-## 3. Restart / reload Claude Code
+```toml
+[upstream]
+command = "/absolute/path/to/burp-agents/.burp/proxy-venv/bin/mcp-proxy"
+args = ["--transport", "sse", "--log-level", "WARNING", "http://127.0.0.1:9876"]
+```
 
-Restart Claude Code (or start a new session in this project) so it picks up the new
-MCP server and the subagent definitions in `.claude/agents/`.
-
-## 4. Verify the connection
-
-Ask Claude directly, without invoking a subagent yet:
-
-> "List the Burp MCP tools you have available, then fetch the last 5 entries from the
-> proxy history."
-
-If this works, you should see Claude call something like `mcp__burp__get_proxy_history`
-and return real captured requests. If it fails:
-
-- Confirm Burp is running and the MCP tab shows the server as active.
-- Confirm the port in `.mcp.json` matches the Burp MCP tab.
-- Confirm you've actually browsed/proxied some traffic through Burp so the history
-  isn't empty.
-
-## 5. Confirm the exact MCP tool names
-
-Different versions/builds of the Burp MCP extension may expose tools under slightly
-different names than this repo assumes (`get_proxy_history`,
-`create_repeater_tab`, `generate_collaborator_payload`, `poll_collaborator`,
-`send_request`). Ask Claude to list the available `mcp__burp__*` tools and, if names
-differ, update the `tools:` frontmatter in the relevant file(s) under
-`.claude/agents/` to match.
-
-## 6. Configure auto-approve targets safely
-
-Before running any subagent against real traffic:
-
-1. Open Burp's **MCP** tab → auto-approve / allowlist settings.
-2. Add **only** the exact hosts in your current engagement's scope.
-3. Leave auto-approve **off** for everything else, and re-confirm the list each time
-   you start a new engagement — don't let a prior engagement's hosts linger on the
-   allowlist.
-4. Re-read the auto-approve warning in `docs/mcp-config.md` and `docs/guardrails.md`
-   before enabling it for Haiku-backed subagents specifically.
-
-Once verified, head to `docs/workflows.md` for example prompts to try.
+The gateway and capability profiles are unchanged. Keep the SDK pinned with this
+bridge version: allowing SDK 2.x caused an import failure during local validation.
+The environment lives in the Git-ignored `.burp/` directory. For an initial
+connection check, keep request/poll budgets at zero and do not configure active
+scope until selecting your actual engagement targets.

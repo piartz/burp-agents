@@ -1,8 +1,14 @@
 {
   "mcpServers": {
     "burp": {
-      "type": "sse",
-      "url": "http://127.0.0.1:9876/sse"
+      "command": "python3",
+      "args": [
+        "scripts/burp-gateway.py",
+        "--engagement",
+        "engagement.toml",
+        "--profile",
+        "analysis"
+      ]
     }
   }
 }

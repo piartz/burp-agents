@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "engagement_id": "lab-2026-001",
+  "records": [
+    {
+      "id": "EV-001",
+      "agent": "burp-authz-comparer",
+      "task": "Compare the supplied test-account access case",
+      "source_refs": ["proxy-history:offset=12", "case:user-b-other-order"],
+      "observations": ["Expected deny; observed response needs review against resource-owner assertion"],
+      "limitations": ["Illustrative fixture, not evidence of a real test"],
+      "request": {
+        "method": "GET",
+        "url": "https://app.example.test/api/orders/123",
+        "protocol": "HTTP/2",
+        "account": "user-b",
+        "headers": {"authorization": "Bearer EXAMPLE_ONLY"}
+      },
+      "response": {
+        "status": 200,
+        "headers": {"content-type": "application/json"},
+        "body": "{\"id\":123,\"owner\":\"test-user-a\"}",
+        "body_complete": true
+      },
+      "reproduction_steps": ["Select the supplied captured request", "Use the explicitly listed test account and case"]
+    }
+  ]
+}
